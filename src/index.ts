@@ -8,7 +8,9 @@ import {
   ToolSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import fs from "fs/promises";
+import { createReadStream, createWriteStream } from "fs";
 import path from "path";
+import { pipeline } from "stream/promises";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
@@ -62,7 +64,7 @@ async function validatePath(requestedPath: string): Promise<string> {
   // Check if path is within allowed directories
   const isAllowed = allowedDirectories.some(dir => normalized.startsWith(dir));
   if (!isAllowed) {
-    throw new Error(`Access denied - path outside allowed directories: ${normalized}, only allowed directories are ${allowedDirectories.join(', ')}`);
+    throw new Error(`Access denied - path outside allowed directories: ${normalized}, only allowed directories are ${allowedDirectories.join(', ')}, maybe case sensitivity issue?`);
   }
 
   return normalized;
@@ -144,57 +146,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const validOutputPath = await validatePath(parsed.data.outputPath);
 
-        // Check if all input files exist
-        for (const filePath of validInputPaths) {
-          try {
-            await fs.access(filePath);
-          } catch (error) {
-            return {
-              content: [{
-                type: "text",
-                text: `Error: Input file not found: ${filePath}`
-              }],
-              isError: true
-            };
-          }
-        }
+        // Check if all input files exist and gather their stats
+        const fileStats = await Promise.all(
+          validInputPaths.map(async (filePath) => {
+            try {
+              const stats = await fs.stat(filePath);
+              return {
+                path: filePath,
+                size: stats.size
+              };
+            } catch (error) {
+              throw new Error(`Error accessing file: ${filePath} - ${(error as Error).message}`);
+            }
+          })
+        );
 
         // Create output directory if necessary
         const outputDir = path.dirname(validOutputPath);
         await fs.mkdir(outputDir, { recursive: true });
 
-        // Read input files
-        const filePromises = validInputPaths.map(async (filePath) => {
-          const content = await fs.readFile(filePath);
-          return {
-            path: filePath,
-            content,
-            size: content.length
-          };
-        });
+        // Create output stream
+        const outputStream = createWriteStream(validOutputPath);
 
-        const files = await Promise.all(filePromises);
-
-        // Create and write to output file
-        const outputFile = await fs.open(validOutputPath, 'w');
-
+        // Process files sequentially using streams
         let totalSize = 0;
-        for (const file of files) {
-          await outputFile.write(file.content);
+        for (const file of fileStats) {
+          // Create read stream for current file
+          const readStream = createReadStream(file.path);
+
+          // Pipe to output stream
+          await pipeline(readStream, outputStream, { end: false });
+
           totalSize += file.size;
         }
 
-        await outputFile.close();
+        // Close the output stream
+        outputStream.end();
 
         // Generate and return summary
-        const fileList = files.map(f =>
+        const fileList = fileStats.map(f =>
           `- ${path.basename(f.path)} (${formatBytes(f.size)})`
         ).join('\n');
 
         return {
           content: [{
             type: "text",
-            text: `Successfully merged ${files.length} files into ${validOutputPath}
+            text: `Successfully merged ${fileStats.length} files into ${validOutputPath}
 
 Total size: ${formatBytes(totalSize)}
 
