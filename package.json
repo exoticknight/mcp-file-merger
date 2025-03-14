@@ -1,0 +1,41 @@
+{
+  "name": "@exoticknight/mcp-file-merger",
+  "version": "1.0.0",
+  "author": {
+    "name": "exoticknight",
+    "url": "https://github.com/exoticknight"
+  },
+  "description": "MCP server for merging multiple files into one",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "bin": {
+    "mcp-file-merger": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "file-merger"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/exoticknight/mcp-file-merger.git"
+  },
+  "bugs": {
+    "url": "https://github.com/exoticknight/mcp-file-merger/issues"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest",
+    "zod": "^3.22.4",
+    "zod-to-json-schema": "^3.22.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.2"
+  }
+}
