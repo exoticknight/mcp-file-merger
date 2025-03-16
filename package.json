@@ -1,6 +1,6 @@
 {
   "name": "@exoticknight/mcp-file-merger",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "exoticknight",
     "url": "https://github.com/exoticknight"
@@ -9,6 +9,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "bin": {
     "mcp-file-merger": "dist/index.js"
   },
