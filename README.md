@@ -4,6 +4,10 @@
 
 Simple utility to combine multiple files into one. Fast, secure, and easy to use.
 
+<a href="https://glama.ai/mcp/servers/@exoticknight/mcp-file-merger">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@exoticknight/mcp-file-merger/badge" alt="File Merger Server MCP server" />
+</a>
+
 ## Features
 
 - **Simple** - Merge any number of files with a single command
