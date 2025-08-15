@@ -1,5 +1,7 @@
 [![MseeP.ai Security Assessment Badge](https://mseep.net/pr/exoticknight-mcp-file-merger-badge.png)](https://mseep.ai/app/exoticknight-mcp-file-merger)
 
+[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/exoticknight/mcp-file-merger)](https://archestra.ai/mcp-catalog/exoticknight__mcp-file-merger)
+
 # File Merger MCP Server
 
 Simple utility to combine multiple files into one. Fast, secure, and easy to use.
