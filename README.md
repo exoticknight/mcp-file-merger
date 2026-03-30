@@ -17,6 +17,10 @@ Simple utility to combine multiple files into one. Fast, secure, and easy to use
 - **Secure** - Only accesses directories you allow
 - **Detailed** - Reports file sizes and merge summary
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/exoticknight-mcp-file-merger).
+
 ## API
 
 ### Tools
