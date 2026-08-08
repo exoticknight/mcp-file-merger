@@ -28,3 +28,6 @@ Thumbs.db
 
 # Test files
 merged-output.txt
+
+# Agent runtime state
+.reasonix/

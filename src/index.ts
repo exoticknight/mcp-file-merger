@@ -1,18 +1,12 @@
 #!/usr/bin/env node
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  ToolSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import fs from "fs/promises";
 import { createReadStream, createWriteStream } from "fs";
 import path from "path";
 import { pipeline } from "stream/promises";
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 
 // Command line argument parsing - directory permissions
 const args = process.argv.slice(2);
@@ -39,15 +33,6 @@ if (args.length > 0) {
   allowedDirectories = [process.cwd()];
 }
 
-// Schema definitions
-const MergeFilesArgsSchema = z.object({
-  inputPaths: z.array(z.string()).min(1).describe("Array of file paths to merge"),
-  outputPath: z.string().describe("Path for the merged output file")
-});
-
-const ToolInputSchema = ToolSchema.shape.inputSchema;
-type ToolInput = z.infer<typeof ToolInputSchema>;
-
 // Security utilities
 async function validatePath(requestedPath: string): Promise<string> {
   const absolute = path.isAbsolute(requestedPath)
@@ -62,7 +47,9 @@ async function validatePath(requestedPath: string): Promise<string> {
   }
 
   // Check if path is within allowed directories
-  const isAllowed = allowedDirectories.some(dir => normalized.startsWith(dir));
+  const isAllowed = allowedDirectories.some(dir =>
+    normalized === dir || normalized.startsWith(dir + path.sep)
+  );
   if (!isAllowed) {
     throw new Error(`Access denied - path outside allowed directories: ${normalized}, only allowed directories are ${allowedDirectories.join(', ')}, maybe case sensitivity issue?`);
   }
@@ -82,10 +69,11 @@ function formatBytes(bytes: number): string {
 }
 
 // Server setup
-const server = new Server(
+const server = new McpServer(
   {
     name: "file-merger-server",
     version: "1.0.0",
+    description: "MCP server for merging multiple files into one",
   },
   {
     capabilities: {
@@ -95,134 +83,110 @@ const server = new Server(
 );
 
 // Tool handlers
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "merge_files",
-        description:
-          "Merge multiple files into a single output file. Reads content from each input file " +
-          "in the order provided and writes it sequentially to the output file. Returns information " +
-          "about the merge operation including file sizes and total size. All specified paths must be " +
-          "within allowed directories if specified.",
-        inputSchema: zodToJsonSchema(MergeFilesArgsSchema) as ToolInput,
-      },
-      {
-        name: "list_allowed_directories",
-        description:
-          "Returns the list of directories that this server is allowed to access. " +
-          "Use this to understand which directories are available before trying to merge files.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-          required: [],
-        },
-      },
-    ],
-  };
-});
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  try {
-    const { name, arguments: args } = request.params;
-
-    switch (name) {
-      case "merge_files": {
-        const parsed = MergeFilesArgsSchema.safeParse(args);
-        if (!parsed.success) {
-          throw new Error(`Invalid arguments for merge_files: ${parsed.error}`);
+server.registerTool(
+  "merge_files",
+  {
+    title: "Merge Files",
+    description:
+      "Merge multiple files into a single output file. Reads content from each input file " +
+      "in the order provided and writes it sequentially to the output file. Returns information " +
+      "about the merge operation including file sizes and total size. All specified paths must be " +
+      "within allowed directories if specified.",
+    inputSchema: z.object({
+      inputPaths: z.array(z.string()).min(1).describe("Array of file paths to merge"),
+      outputPath: z.string().describe("Path for the merged output file"),
+    }),
+  },
+  async ({ inputPaths, outputPath }) => {
+    // Validate all paths
+    const validInputPaths = await Promise.all(
+      inputPaths.map(async (inputPath) => {
+        try {
+          return await validatePath(inputPath);
+        } catch (error) {
+          throw new Error(`Invalid input path: ${inputPath} - ${(error as Error).message}`);
         }
+      })
+    );
 
-        // Validate all paths
-        const validInputPaths = await Promise.all(
-          parsed.data.inputPaths.map(async (inputPath) => {
-            try {
-              return await validatePath(inputPath);
-            } catch (error) {
-              throw new Error(`Invalid input path: ${inputPath} - ${(error as Error).message}`);
-            }
-          })
-        );
+    const validOutputPath = await validatePath(outputPath);
 
-        const validOutputPath = await validatePath(parsed.data.outputPath);
-
-        // Check if all input files exist and gather their stats
-        const fileStats = await Promise.all(
-          validInputPaths.map(async (filePath) => {
-            try {
-              const stats = await fs.stat(filePath);
-              return {
-                path: filePath,
-                size: stats.size
-              };
-            } catch (error) {
-              throw new Error(`Error accessing file: ${filePath} - ${(error as Error).message}`);
-            }
-          })
-        );
-
-        // Create output directory if necessary
-        const outputDir = path.dirname(validOutputPath);
-        await fs.mkdir(outputDir, { recursive: true });
-
-        // Create output stream
-        const outputStream = createWriteStream(validOutputPath);
-
-        // Process files sequentially using streams
-        let totalSize = 0;
-        for (const file of fileStats) {
-          // Create read stream for current file
-          const readStream = createReadStream(file.path);
-
-          // Pipe to output stream
-          await pipeline(readStream, outputStream, { end: false });
-
-          totalSize += file.size;
+    // Check if all input files exist and gather their stats
+    const fileStats = await Promise.all(
+      validInputPaths.map(async (filePath) => {
+        try {
+          const stats = await fs.stat(filePath);
+          return {
+            path: filePath,
+            size: stats.size
+          };
+        } catch (error) {
+          throw new Error(`Error accessing file: ${filePath} - ${(error as Error).message}`);
         }
+      })
+    );
 
-        // Close the output stream
-        outputStream.end();
+    // Create output directory if necessary
+    const outputDir = path.dirname(validOutputPath);
+    await fs.mkdir(outputDir, { recursive: true });
 
-        // Generate and return summary
-        const fileList = fileStats.map(f =>
-          `- ${path.basename(f.path)} (${formatBytes(f.size)})`
-        ).join('\n');
+    // Create output stream
+    const outputStream = createWriteStream(validOutputPath);
 
-        return {
-          content: [{
-            type: "text",
-            text: `Successfully merged ${fileStats.length} files into ${validOutputPath}
+    // Process files sequentially using streams
+    let totalSize = 0;
+    for (const file of fileStats) {
+      // Create read stream for current file
+      const readStream = createReadStream(file.path);
+
+      // Pipe to output stream
+      await pipeline(readStream, outputStream, { end: false });
+
+      totalSize += file.size;
+    }
+
+    // Close the output stream
+    outputStream.end();
+
+    // Generate and return summary
+    const fileList = fileStats.map(f =>
+      `- ${path.basename(f.path)} (${formatBytes(f.size)})`
+    ).join('\n');
+
+    return {
+      content: [{
+        type: "text",
+        text: `Successfully merged ${fileStats.length} files into ${validOutputPath}
 
 Total size: ${formatBytes(totalSize)}
 
 Files merged:
 ${fileList}`
-          }]
-        };
-      }
-
-      case "list_allowed_directories": {
-        return {
-          content: [{
-            type: "text",
-            text: allowedDirectories.length > 0
-              ? `Allowed directories:\n${allowedDirectories.join('\n')}`
-              : "No directory restrictions - all directories are allowed"
-          }],
-        };
-      }
-
-      default:
-        throw new Error(`Unknown tool: ${name}`);
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: "text", text: `Error: ${errorMessage}` }],
-      isError: true,
+      }]
     };
   }
-});
+);
+
+server.registerTool(
+  "list_allowed_directories",
+  {
+    title: "List Allowed Directories",
+    description:
+      "Returns the list of directories that this server is allowed to access. " +
+      "Use this to understand which directories are available before trying to merge files.",
+    inputSchema: z.object({}),
+  },
+  async () => {
+    return {
+      content: [{
+        type: "text",
+        text: allowedDirectories.length > 0
+          ? `Allowed directories:\n${allowedDirectories.join('\n')}`
+          : "No directory restrictions - all directories are allowed"
+      }],
+    };
+  }
+);
 
 // Start server
 async function runServer() {
