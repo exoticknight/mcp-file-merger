@@ -72,7 +72,7 @@ function formatBytes(bytes: number): string {
 const server = new McpServer(
   {
     name: "file-merger-server",
-    version: "1.0.0",
+    version: "2.0.0",
     description: "MCP server for merging multiple files into one",
   },
   {
